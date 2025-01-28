@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template to create encrypted SNS topic with email subscription and EventBridge rule for EC2 Capacity Reservation state changes'
+
+Parameters:
+  EmailAddress:
+    Type: String
+    Description: 'Email address to subscribe to the SNS topic'
+    AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    ConstraintDescription: 'Must be a valid email address'
+  
+  CapacityReservationId:
+    Type: String
+    Description: 'ID of the EC2 Capacity Reservation to monitor (e.g., cr-1234567890abcdef0)'
+    AllowedPattern: '^cr-[a-f0-9]{17}$'
+    ConstraintDescription: 'Must be a valid Capacity Reservation ID starting with cr- followed by 17 hexadecimal characters'
+
+  MonitoredStates:
+    Type: String
+    Description: 'Comma-separated list of Capacity Reservation states to monitor (e.g., failed,expired,cancelled,pending)'
+    AllowedPattern: '^[a-z]+(,[a-z]+)*$'
+    ConstraintDescription: 'Must be lowercase, comma-separated states without spaces (e.g., failed,expired,cancelled)'
+
+Resources:
+  MySnsTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      DisplayName: 'My Notification Topic'
+      KmsMasterKeyId: 'alias/aws/sns'  # Uses AWS managed key for SNS
+      Subscription:
+        - Endpoint: !Ref EmailAddress
+          Protocol: 'email'
+
+  EC2StateChangeRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Name: 'EC2CapacityReservationStateChange'
+      Description: 'Rule to capture EC2 Capacity Reservation state changes'
+      State: 'ENABLED'
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - 'EC2 Capacity Reservation State Change'
+        detail:
+          State: !Split [',', !Ref MonitoredStates]
+          capacity-reservation-id:
+            - !Ref CapacityReservationId
+      Targets:
+        - Arn: !Ref MySnsTopic
+          Id: 'SendToSNS'
+
+Outputs:
+  TopicArn:
+    Description: 'ARN of the created SNS Topic'
+    Value: !Ref MySnsTopic
+  RuleArn:
+    Description: 'ARN of the created EventBridge Rule'
+    Value: !GetAtt EC2StateChangeRule.Arn
+  MonitoredCapacityReservationId:
+    Description: 'Capacity Reservation ID being monitored'
+    Value: !Ref CapacityReservationId
+  MonitoredStatesOutput:
+    Description: 'Capacity Reservation states being monitored'
+    Value: !Ref MonitoredStates
